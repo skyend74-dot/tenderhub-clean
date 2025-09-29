@@ -90,279 +90,220 @@
 </div>
 
 <script>
-  // --- helpers ---
-  const qs = id => document.getElementById(id);
-  const grid  = qs('grid');
-  const empty = qs('empty');
-  const counter = qs('counter');
+const qs = id => document.getElementById(id);
+const grid  = qs('grid');
+const empty = qs('empty');
+const counter = qs('counter');
+const STORAGE_KEY = 'tenderhub_filters_v1';
 
-  const STORAGE_KEY = 'tenderhub_filters_v1';
+const state = {
+  raw: [],
+  view: [],
+  filters: { q:'', src:'all', region:'all', category:'all',
+             minBudget:'', onlyOpen:true, sort:'published_desc' }
+};
 
-  const state = {
-    raw: [],
-    view: [],
-    filters: {
-      q: '', src: 'all', region: 'all', category: 'all',
-      minBudget: '', onlyOpen: true, sort: 'published_desc'
-    }
-  };
+const els = {
+  q:qs('q'), src:qs('src'), region:qs('region'), category:qs('category'),
+  minBudget:qs('minBudget'), onlyOpen:qs('onlyOpen'), sort:qs('sort'),
+  find:qs('find'), refresh:qs('refresh'), reset:qs('reset'),
+  export:qs('export'), share:qs('share')
+};
 
-  const els = {
-    q: qs('q'), src: qs('src'), region: qs('region'), category: qs('category'),
-    minBudget: qs('minBudget'), onlyOpen: qs('onlyOpen'), sort: qs('sort'),
-    find: qs('find'), refresh: qs('refresh'), reset: qs('reset'), export: qs('export'),
-    share: qs('share')
-  };
+function saveFilters(){ try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state.filters));}catch{} }
+function loadFilters(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return;
+    const obj = JSON.parse(raw);
+    if(obj && typeof obj==='object') state.filters = {...state.filters,...obj};
+  }catch{}
+}
 
-  // --- persistence ---
-  function saveFilters() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.filters)); } catch {}
+function currency(n,c='UZS'){try{return new Intl.NumberFormat('ru-RU',{style:'currency',currency:c}).format(n);}catch{return (n??0).toLocaleString('ru-RU')+' '+c;}}
+const parseDate=d=>{const t=Date.parse(d);return isNaN(t)?null:new Date(t);};
+const labelDate=d=>{const x=parseDate(d);return x?x.toLocaleString('ru-RU'):'—';};
+
+// загрузка всех данных без параметра q
+async function loadFromApi(){
+  const res = await fetch('/api/lots/search',{cache:'no-store'});
+  const json = await res.json().catch(()=>({ok:false}));
+  if(!json?.ok || !Array.isArray(json.items)) throw new Error('API error');
+  return json.items;
+}
+
+function fillSelect(select, values){
+  const cur = select.value || 'all';
+  select.innerHTML = `<option value="all">${select.id==='region' ? 'Все регионы' : 'Все категории'}</option>`;
+  Array.from(values).sort((a,b)=>a.localeCompare(b,'ru')).forEach(v=>{
+    const opt=document.createElement('option');opt.value=opt.textContent=v;select.appendChild(opt);
+  });
+  if ([...select.options].some(o=>o.value===cur)) select.value=cur;
+}
+
+function applyFilters(){
+  const f = state.filters;
+  let out = [...state.raw];
+
+  if (f.q){
+    const q = f.q.toLowerCase();
+    out = out.filter(l => ((l.title||'')+' '+(l.description||'')+' '+(l.buyer||'')).toLowerCase().includes(q));
   }
-  function loadFilters() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const obj = JSON.parse(raw);
-      if (obj && typeof obj === 'object') {
-        state.filters = { ...state.filters, ...obj };
-      }
-    } catch {}
+  if (f.src!=='all') out = out.filter(l => (l.source||'').toLowerCase()===f.src);
+  if (f.region!=='all') out = out.filter(l => (l.region||'')===f.region);
+  if (f.category!=='all') out = out.filter(l => (l.category||'')===f.category);
+  if (f.minBudget){
+    const mb = Number(String(f.minBudget).replace(/\s/g,''));
+    if (!isNaN(mb)) out = out.filter(l => (l.budget_amount||0) >= mb);
   }
+  if (f.onlyOpen) out = out.filter(l => (l.status||'')==='open');
 
-  function currency(n, ccy='UZS'){
-    try{ return new Intl.NumberFormat('ru-RU',{style:'currency',currency:ccy}).format(n); }
-    catch{ return (n??0).toLocaleString('ru-RU')+' '+ccy; }
-  }
-  const parseDate = d => { const t = Date.parse(d); return isNaN(t)? null : new Date(t); };
-  const labelDate = d => { const x=parseDate(d); return x? x.toLocaleString('ru-RU'): '—'; };
-
-  // --- API ---
-  async function loadFromApi(query=''){
-    const url = query? `/api/lots/search?q=${encodeURIComponent(query)}`: '/api/lots/search';
-    const res = await fetch(url);
-    const json = await res.json().catch(()=>({ok:false}));
-    if(!json?.ok || !Array.isArray(json.items)) throw new Error('API error');
-    return json.items;
-  }
-
-  // --- select builders ---
-  function fillSelect(select, values){
-    const cur = select.value || 'all';
-    select.innerHTML = `<option value="all">${select.id==='region' ? 'Все регионы' : 'Все категории'}</option>`;
-    Array.from(values).sort((a,b)=>a.localeCompare(b,'ru')).forEach(v=>{
-      const opt = document.createElement('option');
-      opt.value = opt.textContent = v;
-      select.appendChild(opt);
-    });
-    if ([...select.options].some(o=>o.value===cur)) select.value = cur;
-  }
-
-  // --- filtering & sorting ---
-  function applyFilters(){
-    const f = state.filters;
-    let out = [...state.raw];
-
-    if (f.q){
-      const q = f.q.toLowerCase();
-      out = out.filter(l => ((l.title||'')+' '+(l.description||'')+' '+(l.buyer||'')).toLowerCase().includes(q));
-    }
-    if (f.src!=='all') out = out.filter(l => (l.source||'').toLowerCase()===f.src);
-    if (f.region!=='all') out = out.filter(l => (l.region||'')===f.region);
-    if (f.category!=='all') out = out.filter(l => (l.category||'')===f.category);
-    if (f.minBudget){
-      const mb = Number(String(f.minBudget).replace(/\s/g,''));
-      if (!isNaN(mb)) out = out.filter(l => (l.budget_amount||0) >= mb);
-    }
-    if (f.onlyOpen) out = out.filter(l => (l.status||'')==='open');
-
-    switch (f.sort){
-      case 'deadline_asc':
-        out.sort((a,b)=>(parseDate(a.bid_deadline_at)?.getTime()??Infinity)-(parseDate(b.bid_deadline_at)?.getTime()??Infinity));break;
-      case 'deadline_desc':
-        out.sort((a,b)=>(parseDate(b.bid_deadline_at)?.getTime()??-Infinity)-(parseDate(a.bid_deadline_at)?.getTime()??-Infinity));break;
-      case 'budget_desc': out.sort((a,b)=>(b.budget_amount||0)-(a.budget_amount||0));break;
-      case 'budget_asc': out.sort((a,b)=>(a.budget_amount||0)-(b.budget_amount||0));break;
-      default:
-        out.sort((a,b)=>(parseDate(b.published_at)?.getTime()??-Infinity)-(parseDate(a.published_at)?.getTime()??-Infinity));
-    }
-
-    state.view = out;
-    saveFilters();                 // сохраняем на каждое применение
-    render();
-    syncUrl();                     // и синхронизируем URL (без перезагрузки)
+  switch (f.sort){
+    case 'deadline_asc': out.sort((a,b)=>(parseDate(a.bid_deadline_at)?.getTime()??Infinity)-(parseDate(b.bid_deadline_at)?.getTime()??Infinity));break;
+    case 'deadline_desc':out.sort((a,b)=>(parseDate(b.bid_deadline_at)?.getTime()??-Infinity)-(parseDate(a.bid_deadline_at)?.getTime()??-Infinity));break;
+    case 'budget_desc': out.sort((a,b)=>(b.budget_amount||0)-(a.budget_amount||0));break;
+    case 'budget_asc':  out.sort((a,b)=>(a.budget_amount||0)-(b.budget_amount||0));break;
+    default: out.sort((a,b)=>(parseDate(b.published_at)?.getTime()??-Infinity)-(parseDate(a.published_at)?.getTime()??-Infinity));
   }
 
-  // --- render ---
-  function render(){
-    const items = state.view;
-    counter.textContent = `Найдено: ${items.length}`;
+  state.view = out;
+  saveFilters();
+  render();
+  syncUrl();
+}
 
-    grid.innerHTML = '';
-    if (!items.length){ empty.style.display='block'; return; }
-    empty.style.display='none';
+function render(){
+  const items = state.view;
+  counter.textContent = `Найдено: ${items.length}`;
+  grid.innerHTML = '';
+  if (!items.length){ empty.style.display='block'; return; }
+  empty.style.display='none';
 
-    for (const l of items){
-      const card = document.createElement('div');
-      card.className='card';
+  for (const l of items){
+    const card=document.createElement('div');card.className='card';
 
-      const title = document.createElement('div');
-      title.style.fontWeight='700';
-      title.textContent = l.title || '—';
-      card.appendChild(title);
+    const title=document.createElement('div');title.style.fontWeight='700';title.textContent=l.title||'—';card.appendChild(title);
 
-      const row1 = document.createElement('div');
-      row1.className='row';
-      row1.innerHTML = `
-        <span class="badge">${(l.source||'').toUpperCase()}</span>
-        <span class="badge">${l.buyer||'—'}</span>
-        <span class="badge">${l.region||'—'}</span>
-        <span class="badge">${l.category||'—'}</span>
-      `;
-      card.appendChild(row1);
+    const row1=document.createElement('div');row1.className='row';
+    row1.innerHTML=`<span class="badge">${(l.source||'').toUpperCase()}</span>
+      <span class="badge">${l.buyer||'—'}</span>
+      <span class="badge">${l.region||'—'}</span>
+      <span class="badge">${l.category||'—'}</span>`;
+    card.appendChild(row1);
 
-      const desc = document.createElement('div');
-      desc.className='muted';
-      desc.style.fontSize='14px';
-      desc.textContent = l.description || '';
-      card.appendChild(desc);
+    const desc=document.createElement('div');desc.className='muted';desc.style.fontSize='14px';desc.textContent=l.description||'';card.appendChild(desc);
 
-      const row2 = document.createElement('div');
-      row2.className='row';
-      const st = (l.status||'');
-      row2.innerHTML = `
-        <span class="price">${currency(l.budget_amount||0, l.currency||'UZS')}</span>
-        <span class="badge" style="border-color:${st==='open'?'#1b4d33':'#4d1b1b'};background:${st==='open'?'#0b1b16':'#1b0b0b'}">${st==='open'?'Открыт':st||'unknown'}</span>
-      `;
-      card.appendChild(row2);
+    const row2=document.createElement('div');row2.className='row';
+    const st=(l.status||'');
+    row2.innerHTML=`<span class="price">${currency(l.budget_amount||0,l.currency||'UZS')}</span>
+      <span class="badge" style="border-color:${st==='open'?'#1b4d33':'#4d1b1b'};background:${st==='open'?'#0b1b16':'#1b0b0b'}">${st==='open'?'Открыт':st||'unknown'}</span>`;
+    card.appendChild(row2);
 
-      const row3 = document.createElement('div');
-      row3.className='row';
-      row3.innerHTML = `
-        <span class="muted">Опубликовано: ${labelDate(l.published_at)}</span>
-        <span class="muted">Дедлайн: ${labelDate(l.bid_deadline_at)}</span>
-      `;
-      card.appendChild(row3);
+    const row3=document.createElement('div');row3.className='row';
+    row3.innerHTML=`<span class="muted">Опубликовано: ${labelDate(l.published_at)}</span>
+      <span class="muted">Дедлайн: ${labelDate(l.bid_deadline_at)}</span>`;
+    card.appendChild(row3);
 
-      const link = document.createElement('a');
-      link.className='link'; link.href=l.url||'#'; link.target='_blank'; link.rel='noopener';
-      link.textContent='Открыть источник';
-      card.appendChild(link);
+    const link=document.createElement('a');link.className='link';link.href=l.url||'#';link.target='_blank';link.rel='noopener';link.textContent='Открыть источник';card.appendChild(link);
 
-      grid.appendChild(card);
-    }
+    grid.appendChild(card);
   }
+}
 
-  // --- URL share/sync ---
-  function buildQueryFromFilters() {
-    const f = state.filters;
-    const p = new URLSearchParams();
-    if (f.q) p.set('q', f.q);
-    if (f.src!=='all') p.set('src', f.src);
-    if (f.region!=='all') p.set('region', f.region);
-    if (f.category!=='all') p.set('category', f.category);
-    if (f.minBudget) p.set('min', f.minBudget);
-    if (!f.onlyOpen) p.set('open', '0');      // по умолчанию true — пишем только если выключено
-    if (f.sort!=='published_desc') p.set('sort', f.sort);
-    return p.toString();
-  }
-  function syncUrl() {
-    const q = buildQueryFromFilters();
-    const newUrl = q ? `${location.pathname}?${q}` : location.pathname;
-    history.replaceState(null, '', newUrl);
-  }
-  function applyQueryToFilters() {
-    const p = new URLSearchParams(location.search);
-    if (p.has('q')) state.filters.q = p.get('q') || '';
-    if (p.has('src')) state.filters.src = (p.get('src')||'').toLowerCase() || 'all';
-    if (p.has('region')) state.filters.region = p.get('region') || 'all';
-    if (p.has('category')) state.filters.category = p.get('category') || 'all';
-    if (p.has('min')) state.filters.minBudget = p.get('min') || '';
-    if (p.has('open')) state.filters.onlyOpen = (p.get('open') !== '0');
-    if (p.has('sort')) state.filters.sort = p.get('sort') || 'published_desc';
-  }
+function buildQueryFromFilters(){
+  const f=state.filters,p=new URLSearchParams();
+  if (f.q) p.set('q',f.q);
+  if (f.src!=='all') p.set('src',f.src);
+  if (f.region!=='all') p.set('region',f.region);
+  if (f.category!=='all') p.set('category',f.category);
+  if (f.minBudget) p.set('min',f.minBudget);
+  if (!f.onlyOpen) p.set('open','0');
+  if (f.sort!=='published_desc') p.set('sort',f.sort);
+  return p.toString();
+}
+function syncUrl(){
+  const q=buildQueryFromFilters();
+  const newUrl=q?`${location.pathname}?${q}`:location.pathname;
+  history.replaceState(null,'',newUrl);
+}
+function applyQueryToFilters(){
+  const p=new URLSearchParams(location.search);
+  if (p.has('q')) state.filters.q=p.get('q')||'';
+  if (p.has('src')) state.filters.src=(p.get('src')||'').toLowerCase()||'all';
+  if (p.has('region')) state.filters.region=p.get('region')||'all';
+  if (p.has('category')) state.filters.category=p.get('category')||'all';
+  if (p.has('min')) state.filters.minBudget=p.get('min')||'';
+  if (p.has('open')) state.filters.onlyOpen=(p.get('open')!=='0');
+  if (p.has('sort')) state.filters.sort=p.get('sort')||'published_desc';
+}
 
-  // --- events ---
-  function wire(){
-    els.q.addEventListener('keydown', e => { if(e.key==='Enter') { state.filters.q = els.q.value.trim(); applyFilters(); } });
-    els.find.addEventListener('click', async () => {
-      state.filters.q = els.q.value.trim();
-      await reload(true);
-    });
+function wire(){
+  els.q.addEventListener('keydown',e=>{if(e.key==='Enter'){state.filters.q=els.q.value.trim();applyFilters();}});
+  els.find.addEventListener('click',()=>{state.filters.q=els.q.value.trim();applyFilters();});
 
-    els.src.addEventListener('change', ()=>{ state.filters.src = els.src.value; applyFilters(); });
-    els.region.addEventListener('change', ()=>{ state.filters.region = els.region.value; applyFilters(); });
-    els.category.addEventListener('change', ()=>{ state.filters.category = els.category.value; applyFilters(); });
-    els.minBudget.addEventListener('input', ()=>{ state.filters.minBudget = els.minBudget.value; applyFilters(); });
-    els.onlyOpen.addEventListener('change', ()=>{ state.filters.onlyOpen = els.onlyOpen.checked; applyFilters(); });
-    els.sort.addEventListener('change', ()=>{ state.filters.sort = els.sort.value; applyFilters(); });
+  els.src.addEventListener('change',()=>{state.filters.src=els.src.value;applyFilters();});
+  els.region.addEventListener('change',()=>{state.filters.region=els.region.value;applyFilters();});
+  els.category.addEventListener('change',()=>{state.filters.category=els.category.value;applyFilters();});
+  els.minBudget.addEventListener('input',()=>{state.filters.minBudget=els.minBudget.value;applyFilters();});
+  els.onlyOpen.addEventListener('change',()=>{state.filters.onlyOpen=els.onlyOpen.checked;applyFilters();});
+  els.sort.addEventListener('change',()=>{state.filters.sort=els.sort.value;applyFilters();});
 
-    els.refresh.addEventListener('click', ()=> reload(true));
+  els.refresh.addEventListener('click',()=>reload(true));
 
-    els.reset.addEventListener('click', ()=>{
-      els.src.value='all'; els.region.value='all'; els.category.value='all';
-      els.minBudget.value=''; els.onlyOpen.checked=true; els.sort.value='published_desc';
-      state.filters = { q: els.q.value.trim(), src:'all', region:'all', category:'all', minBudget:'', onlyOpen:true, sort:'published_desc' };
-      applyFilters();
-    });
+  els.reset.addEventListener('click',()=>{
+    els.src.value='all';els.region.value='all';els.category.value='all';
+    els.minBudget.value='';els.onlyOpen.checked=true;els.sort.value='published_desc';
+    state.filters={q:els.q.value.trim(),src:'all',region:'all',category:'all',minBudget:'',onlyOpen:true,sort:'published_desc'};
+    applyFilters();
+  });
 
-    els.export.addEventListener('click', ()=>{
-      const blob = new Blob([JSON.stringify(state.view, null, 2)], {type:'application/json'});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href=url; a.download=`lots_${Date.now()}.json`; a.click();
-      URL.revokeObjectURL(url);
-    });
+  els.export.addEventListener('click',()=>{
+    const blob=new Blob([JSON.stringify(state.view,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download=`lots_${Date.now()}.json`;a.click();
+    URL.revokeObjectURL(url);
+  });
 
-    els.share.addEventListener('click', async ()=>{
-      try{
-        const q = buildQueryFromFilters();
-        const shareUrl = q ? `${location.origin}${location.pathname}?${q}` : `${location.origin}${location.pathname}`;
-        await navigator.clipboard.writeText(shareUrl);
-        counter.textContent = 'Ссылка скопирована';
-        setTimeout(()=>applyFilters(), 1200);
-      }catch{
-        alert('Не удалось скопировать ссылку');
-      }
-    });
-  }
-
-  // --- reload ---
-  async function reload(fetchServer=false){
+  els.share.addEventListener('click',async()=>{
     try{
-      counter.textContent='Загрузка…';
-      if(fetchServer){
-        const items = await loadFromApi(state.filters.q);
-        state.raw = items;
-      }
-      const regs = new Set(), cats = new Set();
-      for(const l of state.raw){ if(l?.region) regs.add(l.region); if(l?.category) cats.add(l.category); }
-      fillSelect(els.region, regs); fillSelect(els.category, cats);
+      const q=buildQueryFromFilters();
+      const shareUrl=q?`${location.origin}${location.pathname}?${q}`:`${location.origin}${location.pathname}`;
+      await navigator.clipboard.writeText(shareUrl);
+      counter.textContent='Ссылка скопирована';
+      setTimeout(()=>applyFilters(),1200);
+    }catch{alert('Не удалось скопировать ссылку');}
+  });
+}
 
-      // проставим значения в UI из state.filters (после заполнения select'ов)
-      els.q.value = state.filters.q || '';
-      els.src.value = state.filters.src || 'all';
-      els.region.value = state.filters.region || 'all';
-      els.category.value = state.filters.category || 'all';
-      els.minBudget.value = state.filters.minBudget || '';
-      els.onlyOpen.checked = !!state.filters.onlyOpen;
-      els.sort.value = state.filters.sort || 'published_desc';
-
-      applyFilters();
-    }catch(e){
-      grid.innerHTML=''; empty.style.display='block'; empty.textContent='Ошибка загрузки данных';
-      counter.textContent='Ошибка';
-      console.error(e);
+async function reload(fetchServer=false){
+  try{
+    counter.textContent='Загрузка…';
+    if(fetchServer){
+      const items = await loadFromApi(); // без параметра q
+      state.raw = items;
     }
-  }
+    const regs=new Set(),cats=new Set();
+    for(const l of state.raw){if(l?.region)regs.add(l.region);if(l?.category)cats.add(l.category);}
+    fillSelect(els.region,regs);fillSelect(els.category,cats);
 
-  // --- bootstrap ---
-  // 1) загрузим сохранённые фильтры
-  loadFilters();
-  // 2) перекроем их параметрами из URL (если есть)
-  applyQueryToFilters();
-  // 3) навесим обработчики
-  wire();
-  // 4) первая загрузка с сервера
-  reload(true);
-</script>
-</body>
-</html>
+    els.q.value=state.filters.q||'';
+    els.src.value=state.filters.src||'all';
+    els.region.value=state.filters.region||'all';
+    els.category.value=state.filters.category||'all';
+    els.minBudget.value=state.filters.minBudget||'';
+    els.onlyOpen.checked=!!state.filters.onlyOpen;
+    els.sort.value=state.filters.sort||'published_desc';
+
+    applyFilters();
+  }catch(e){
+    grid.innerHTML='';empty.style.display='block';empty.textContent='Ошибка загрузки данных';
+    counter.textContent='Ошибка';console.error(e);
+  }
+}
+
+// --- запуск ---
+loadFilters();
+applyQueryToFilters();
+wire();
+reload(true);
+</
