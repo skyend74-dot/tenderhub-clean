@@ -1,6 +1,8 @@
 // api/lots/search.ts
-export const runtime = 'edge'; // лёгкая Edge-функция
+// ВАЖНО: для Edge-функции в проектах без Next.js нужен именно export const config = { runtime: 'edge' }.
+export const config = { runtime: 'edge' };
 
+// ---- Типы (для удобства разработки, на рантайм не влияют) ----
 type LotStatus = 'open' | 'closed' | 'awarded' | 'cancelled' | 'unknown';
 type Lot = {
   id: string;
@@ -13,18 +15,20 @@ type Lot = {
   region: string;
   budget_amount: number;
   currency: 'UZS' | 'USD' | 'EUR';
-  bid_deadline_at: string;
-  published_at: string;
+  bid_deadline_at: string;  // ISO
+  published_at: string;     // ISO
   status: LotStatus;
 };
 
+// ---- Лёгкие мок-данные (никаких внешних запросов) ----
 const MOCK_LOTS: Lot[] = [
   {
     id: 'L-1001',
     source: 'etender',
     url: 'https://etender.uzex.uz/lots/2/1001',
     title: 'Поставка автошин 195/65R15 (Tunga Zodiak)',
-    description: 'Поставка автошин для служебного автопарка; сертификат соответствия обязателен.',
+    description:
+      'Поставка автошин для служебного автопарка; сертификат соответствия обязателен.',
     category: 'Авто и шины',
     buyer: 'МВД РУз',
     region: 'Ташкент',
@@ -39,7 +43,8 @@ const MOCK_LOTS: Lot[] = [
     source: 'xarid',
     url: 'https://xarid.uzex.uz/lots/2/1002',
     title: 'Рукава всасывающие D125 мм, 4 м',
-    description: 'Рукав всасывающий для забора воды, 2025 г.в., новый, без повреждений.',
+    description:
+      'Рукав всасывающий для забора воды, 2025 г.в., новый, без повреждений.',
     category: 'Пожарная безопасность',
     buyer: 'Министерство по ЧС',
     region: 'Самарканд',
@@ -51,21 +56,31 @@ const MOCK_LOTS: Lot[] = [
   },
 ];
 
+// ---- Вспомогательный ответ JSON ----
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8' },
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      // чтобы браузер не кэшировал ответ во время отладки
+      'cache-control': 'no-store',
+    },
   });
 }
 
-export default async function handler(req: Request) {
+// ---- Основной обработчик Edge-функции ----
+export default async function handler(req: Request): Promise<Response> {
   try {
-    // Параметр q обрабатываем легко и безопасно (но можно и вовсе игнорировать).
-    // Главное — никаких долгих операций.
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      return json({ ok: false, error: 'Method Not Allowed' }, 405);
+    }
+
+    // Безопасно читаем q (ограничим длину, чтобы не тратить время на чрезмерные строки)
     const { searchParams } = new URL(req.url);
-    const qRaw = searchParams.get('q') || '';
+    const qRaw = (searchParams.get('q') || '').trim();
     const q = qRaw.length > 120 ? '' : qRaw.toLowerCase();
 
+    // Фильтруем только по уже загруженным мок-данным (никаких сетевых запросов)
     let items = MOCK_LOTS;
     if (q) {
       items = items.filter((l) =>
@@ -77,6 +92,9 @@ export default async function handler(req: Request) {
 
     return json({ ok: true, items });
   } catch (e: any) {
-    return json({ ok: false, error: e?.message || String(e) }, 500);
+    return json(
+      { ok: false, error: e?.message || String(e || 'Unknown error') },
+      500
+    );
   }
 }
