@@ -90,6 +90,7 @@
 </div>
 
 <script>
+/* ------------ Сервисные элементы и состояние ------------ */
 const qs = id => document.getElementById(id);
 const grid  = qs('grid');
 const empty = qs('empty');
@@ -110,6 +111,7 @@ const els = {
   export:qs('export'), share:qs('share')
 };
 
+/* ------------ Хранилище фильтров ------------ */
 function saveFilters(){ try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state.filters));}catch{} }
 function loadFilters(){
   try{
@@ -120,11 +122,12 @@ function loadFilters(){
   }catch{}
 }
 
+/* ------------ Утилиты ------------ */
 function currency(n,c='UZS'){try{return new Intl.NumberFormat('ru-RU',{style:'currency',currency:c}).format(n);}catch{return (n??0).toLocaleString('ru-RU')+' '+c;}}
 const parseDate=d=>{const t=Date.parse(d);return isNaN(t)?null:new Date(t);};
 const labelDate=d=>{const x=parseDate(d);return x?x.toLocaleString('ru-RU'):'—';};
 
-// загрузка всех данных без параметра q
+/* ------------ Загрузка данных (без q, чтобы не было таймаутов) ------------ */
 async function loadFromApi(){
   const res = await fetch('/api/lots/search',{cache:'no-store'});
   const json = await res.json().catch(()=>({ok:false}));
@@ -132,6 +135,7 @@ async function loadFromApi(){
   return json.items;
 }
 
+/* ------------ Построение селектов ------------ */
 function fillSelect(select, values){
   const cur = select.value || 'all';
   select.innerHTML = `<option value="all">${select.id==='region' ? 'Все регионы' : 'Все категории'}</option>`;
@@ -141,6 +145,7 @@ function fillSelect(select, values){
   if ([...select.options].some(o=>o.value===cur)) select.value=cur;
 }
 
+/* ------------ Фильтрация и сортировка ------------ */
 function applyFilters(){
   const f = state.filters;
   let out = [...state.raw];
@@ -172,8 +177,9 @@ function applyFilters(){
   syncUrl();
 }
 
+/* ------------ Рендер ------------ */
 function render(){
-  const items = state.view;
+  const items = state.view || [];              // <- всегда массив
   counter.textContent = `Найдено: ${items.length}`;
   grid.innerHTML = '';
   if (!items.length){ empty.style.display='block'; return; }
@@ -210,6 +216,7 @@ function render(){
   }
 }
 
+/* ------------ Синхронизация с адресной строкой ------------ */
 function buildQueryFromFilters(){
   const f=state.filters,p=new URLSearchParams();
   if (f.q) p.set('q',f.q);
@@ -237,9 +244,23 @@ function applyQueryToFilters(){
   if (p.has('sort')) state.filters.sort=p.get('sort')||'published_desc';
 }
 
+/* ------------ Слушатели ------------ */
 function wire(){
-  els.q.addEventListener('keydown',e=>{if(e.key==='Enter'){state.filters.q=els.q.value.trim();applyFilters();}});
-  els.find.addEventListener('click',()=>{state.filters.q=els.q.value.trim();applyFilters();});
+  // По Enter: если данных ещё нет — сначала загрузим, иначе фильтруем
+  els.q.addEventListener('keydown', async (e)=>{
+    if(e.key==='Enter'){
+      state.filters.q = els.q.value.trim();
+      if (!state.raw || state.raw.length === 0) { await reload(true); }
+      else { applyFilters(); }
+    }
+  });
+
+  // Кнопка Найти: подтянуть данные на первом запуске
+  els.find.addEventListener('click', async ()=>{
+    state.filters.q = els.q.value.trim();
+    if (!state.raw || state.raw.length === 0) { await reload(true); }
+    else { applyFilters(); }
+  });
 
   els.src.addEventListener('change',()=>{state.filters.src=els.src.value;applyFilters();});
   els.region.addEventListener('change',()=>{state.filters.region=els.region.value;applyFilters();});
@@ -275,6 +296,7 @@ function wire(){
   });
 }
 
+/* ------------ Перезагрузка/инициализация ------------ */
 async function reload(fetchServer=false){
   try{
     counter.textContent='Загрузка…';
@@ -301,9 +323,11 @@ async function reload(fetchServer=false){
   }
 }
 
-// --- запуск ---
+/* ------------ Старт ------------ */
 loadFilters();
 applyQueryToFilters();
 wire();
 reload(true);
-</
+</script>
+</body>
+</html>
