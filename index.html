@@ -90,6 +90,40 @@
 </div>
 
 <script>
+/* ------------ DEMO fallback: оффлайн-данные, если API тормозит ------------ */
+const FALLBACK_LOTS = [
+  {
+    id: "L-1001",
+    source: "etender",
+    url: "https://etender.uzex.uz/lots/2/1001",
+    title: "Поставка автошин 195/65R15 (Tunga Zodiak)",
+    description: "Поставка автошин для служебного автопарка; сертификат соответствия обязателен.",
+    category: "Авто и шины",
+    buyer: "МВД РУз",
+    region: "Ташкент",
+    budget_amount: 950000000,
+    currency: "UZS",
+    bid_deadline_at: new Date(Date.now() + 28*60*60*1000).toISOString(),
+    published_at: new Date(Date.now() - 20*60*60*1000).toISOString(),
+    status: "open"
+  },
+  {
+    id: "L-1002",
+    source: "xarid",
+    url: "https://xarid.uzex.uz/lots/2/1002",
+    title: "Рукава всасывающие D125 мм, 4 м",
+    description: "Рукав всасывающий для забора воды, 2025 г.в., новый, без повреждений.",
+    category: "Пожарная безопасность",
+    buyer: "Министерство по ЧС",
+    region: "Самарканд",
+    budget_amount: 320000000,
+    currency: "UZS",
+    bid_deadline_at: new Date(Date.now() + 6*60*60*1000).toISOString(),
+    published_at: new Date(Date.now() - 40*60*60*1000).toISOString(),
+    status: "open"
+  }
+];
+
 /* ------------ Сервисные элементы и состояние ------------ */
 const qs = id => document.getElementById(id);
 const grid  = qs('grid');
@@ -127,9 +161,23 @@ function currency(n,c='UZS'){try{return new Intl.NumberFormat('ru-RU',{style:'cu
 const parseDate=d=>{const t=Date.parse(d);return isNaN(t)?null:new Date(t);};
 const labelDate=d=>{const x=parseDate(d);return x?x.toLocaleString('ru-RU'):'—';};
 
-/* ------------ Загрузка данных (без q, чтобы не было таймаутов) ------------ */
+/* ------------ fetch с таймаутом + загрузка данных ------------ */
+async function fetchWithTimeout(url, ms=2500) {
+  const ctrl = new AbortController();
+  const id = setTimeout(()=>ctrl.abort(), ms);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal, cache:'no-store' });
+    clearTimeout(id);
+    return res;
+  } catch (e) {
+    clearTimeout(id);
+    throw e;
+  }
+}
+
+// НЕ передаём ?q= — всё ищем на клиенте
 async function loadFromApi(){
-  const res = await fetch('/api/lots/search',{cache:'no-store'});
+  const res = await fetchWithTimeout('/api/lots/search', 2500);
   const json = await res.json().catch(()=>({ok:false}));
   if(!json?.ok || !Array.isArray(json.items)) throw new Error('API error');
   return json.items;
@@ -179,7 +227,7 @@ function applyFilters(){
 
 /* ------------ Рендер ------------ */
 function render(){
-  const items = state.view || [];              // <- всегда массив
+  const items = state.view || [];
   counter.textContent = `Найдено: ${items.length}`;
   grid.innerHTML = '';
   if (!items.length){ empty.style.display='block'; return; }
@@ -246,7 +294,7 @@ function applyQueryToFilters(){
 
 /* ------------ Слушатели ------------ */
 function wire(){
-  // По Enter: если данных ещё нет — сначала загрузим, иначе фильтруем
+  // По Enter: если данных ещё нет — сначала пробуем загрузить, иначе фильтруем
   els.q.addEventListener('keydown', async (e)=>{
     if(e.key==='Enter'){
       state.filters.q = els.q.value.trim();
@@ -301,8 +349,15 @@ async function reload(fetchServer=false){
   try{
     counter.textContent='Загрузка…';
     if(fetchServer){
-      const items = await loadFromApi(); // без параметра q
-      state.raw = items;
+      try{
+        const items = await loadFromApi(); // без ?q
+        state.raw = items;
+      } catch (e) {
+        // API не ответил вовремя — переходим в оффлайн-режим
+        state.raw = FALLBACK_LOTS;
+        console.warn('API timeout/err, using fallback data', e);
+        counter.textContent = 'Оффлайн-данные';
+      }
     }
     const regs=new Set(),cats=new Set();
     for(const l of state.raw){if(l?.region)regs.add(l.region);if(l?.category)cats.add(l.category);}
