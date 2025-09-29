@@ -1,22 +1,304 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ru">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TenderHub — сайт работает</title>
-    <style>
-      body { font-family: system-ui, Arial, sans-serif; margin: 0; background:#0f172a; color:#e2e8f0; display:grid; place-items:center; height:100vh; }
-      .card { text-align:center; padding:32px 24px; border:1px solid #334155; border-radius:16px; background:#111827; }
-      h1 { margin:0 0 8px 0; font-size:24px }
-      p  { margin:0; opacity:.8 }
-      a  { color:#60a5fa; text-decoration:none }
-    </style>
-  </head>
-  <body>
-    <div class="card">
-      <h1>🚀 TenderHub: сайт запущен</h1>
-      <p>Если вы видите эту страницу — деплой на Vercel работает.</p>
-      <p style="margin-top:12px;">Дальше можно добавлять UI и API-роуты.</p>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>TenderHub • Лоты</title>
+  <style>
+    :root{
+      --bg:#0f172a;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;
+      --accent:#22c55e;--chip:#1f2937;--border:#1f2a44;--input:#0b1224;
+      --danger:#ef4444
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;padding:32px;background:linear-gradient(180deg,#0b1022,#0f172a 40%,#0b1022 100%);
+      color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif
+    }
+    .wrap{max-width:1200px;margin:0 auto}
+    h1{margin:0 0 8px;font-size:28px;font-weight:800}
+    .muted{color:var(--muted)}
+    .panel{margin:18px 0 22px;padding:14px;border:1px solid var(--border);border-radius:14px;background:#0b0f20}
+    .toolbar{display:grid;grid-template-columns:1.2fr .9fr .9fr .9fr .9fr .8fr .6fr;gap:10px}
+    @media (max-width:1100px){.toolbar{grid-template-columns:1fr 1fr 1fr}}
+    @media (max-width:740px){.toolbar{grid-template-columns:1fr}}
+    .search,.select,.num,.btn{
+      background:var(--input);border:1px solid var(--border);color:var(--text);
+      border-radius:10px;padding:11px 12px;font-size:15px;outline:none
+    }
+    .btn{cursor:pointer}
+    .btn.secondary{background:#0b1224}
+    .btn.success{border-color:#204c34;background:#0b1b16}
+    .btn.danger{border-color:#4c2020;background:#1b0b0b}
+    .switch{display:flex;align-items:center;gap:8px}
+    .switch input{width:18px;height:18px}
+    .grid{display:grid;grid-template-columns:repeat(1,1fr);gap:14px}
+    @media (min-width:760px){.grid{grid-template-columns:repeat(2,1fr)}}
+    @media (min-width:1100px){.grid{grid-template-columns:repeat(3,1fr)}}
+    .card{background:var(--card);border:1px solid #1f2937;border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+    .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .badge{font-size:11px;color:#cbd5e1;background:var(--chip);border:1px solid #334155;padding:2px 8px;border-radius:999px}
+    .price{color:var(--accent);font-weight:800}
+    .link{display:inline-flex;align-items:center;gap:6px;text-decoration:none;color:#93c5fd;border:1px solid var(--border);background:#0b1224;padding:10px 12px;border-radius:10px}
+    .summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+    .pill{padding:6px 10px;border:1px solid var(--border);border-radius:999px;background:#0b1224}
+    .empty{border:1px dashed var(--border);border-radius:16px;padding:26px;text-align:center;color:var(--muted)}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>TenderHub — лента лотов</h1>
+  <div class="muted">Данные с вашего serverless-роута <code>/api/lots/search</code></div>
+
+  <div class="panel">
+    <div class="summary">
+      <span id="counter" class="pill">Загрузка…</span>
+      <button id="refresh" class="btn secondary">Обновить</button>
+      <button id="reset" class="btn danger">Сбросить фильтры</button>
+      <button id="export" class="btn success">Экспорт JSON</button>
+      <span class="muted">Сортировка:</span>
+      <select id="sort" class="select">
+        <option value="published_desc">Опубликовано ↓</option>
+        <option value="deadline_asc">Дедлайн ↑</option>
+        <option value="deadline_desc">Дедлайн ↓</option>
+        <option value="budget_desc">Бюджет ↓</option>
+        <option value="budget_asc">Бюджет ↑</option>
+      </select>
     </div>
-  </body>
+
+    <div class="toolbar">
+      <input id="q" class="search" placeholder="Поиск: шины, рукав, покупатель…"/>
+      <select id="src" class="select">
+        <option value="all">Все площадки</option>
+        <option value="etender">ETENDER</option>
+        <option value="xarid">XARID</option>
+      </select>
+      <select id="region" class="select"><option value="all">Все регионы</option></select>
+      <select id="category" class="select"><option value="all">Все категории</option></select>
+      <input id="minBudget" class="num" inputmode="numeric" placeholder="Мин. бюджет UZS"/>
+      <div class="switch">
+        <input id="onlyOpen" type="checkbox" checked/>
+        <label for="onlyOpen">Только открытые</label>
+      </div>
+      <button id="find" class="btn">Найти</button>
+    </div>
+  </div>
+
+  <div id="grid" class="grid"></div>
+  <div id="empty" class="empty" style="display:none">Ничего не найдено</div>
+</div>
+
+<script>
+  // --- helpers ---
+  const qs = id => document.getElementById(id);
+  const grid  = qs('grid');
+  const empty = qs('empty');
+  const counter = qs('counter');
+
+  const state = {
+    raw: [],       // исходные данные
+    view: [],      // отфильтрованные
+    filters: {
+      q: '', src: 'all', region: 'all', category: 'all',
+      minBudget: '', onlyOpen: true, sort: 'published_desc'
+    }
+  };
+
+  const els = {
+    q: qs('q'), src: qs('src'), region: qs('region'), category: qs('category'),
+    minBudget: qs('minBudget'), onlyOpen: qs('onlyOpen'), sort: qs('sort'),
+    find: qs('find'), refresh: qs('refresh'), reset: qs('reset'), export: qs('export')
+  };
+
+  function currency(n, ccy='UZS'){
+    try{ return new Intl.NumberFormat('ru-RU',{style:'currency',currency:ccy}).format(n); }
+    catch{ return (n??0).toLocaleString('ru-RU')+' '+ccy; }
+  }
+
+  function parseDate(d){ const t = Date.parse(d); return isNaN(t)? null : new Date(t); }
+  function labelDate(d){ const x=parseDate(d); return x? x.toLocaleString('ru-RU'): '—'; }
+
+  // --- fetch ---
+  async function loadFromApi(query=''){
+    const url = query? `/api/lots/search?q=${encodeURIComponent(query)}`: '/api/lots/search';
+    const res = await fetch(url);
+    const json = await res.json().catch(()=>({ok:false}));
+    if(!json?.ok || !Array.isArray(json.items)) throw new Error('API error');
+    return json.items;
+  }
+
+  // --- UI builders for selects (region/category from data) ---
+  function fillSelect(select, values){
+    const cur = select.value;
+    select.innerHTML = `<option value="all">${select.id==='region' ? 'Все регионы' : 'Все категории'}</option>`;
+    Array.from(values).sort((a,b)=>a.localeCompare(b,'ru')).forEach(v=>{
+      const opt = document.createElement('option');
+      opt.value = opt.textContent = v;
+      select.appendChild(opt);
+    });
+    // восстановим значение если есть
+    if ([...select.options].some(o=>o.value===cur)) select.value = cur;
+  }
+
+  // --- filtering & sorting ---
+  function applyFilters(){
+    const f = state.filters;
+    let out = [...state.raw];
+
+    if (f.q){
+      const q = f.q.toLowerCase();
+      out = out.filter(l => ((l.title||'')+' '+(l.description||'')+' '+(l.buyer||'')).toLowerCase().includes(q));
+    }
+    if (f.src!=='all') out = out.filter(l => (l.source||'').toLowerCase()===f.src);
+    if (f.region!=='all') out = out.filter(l => (l.region||'')===f.region);
+    if (f.category!=='all') out = out.filter(l => (l.category||'')===f.category);
+    if (f.minBudget){
+      const mb = Number(f.minBudget.replace(/\s/g,''));
+      if (!isNaN(mb)) out = out.filter(l => (l.budget_amount||0) >= mb);
+    }
+    if (f.onlyOpen) out = out.filter(l => (l.status||'')==='open');
+
+    switch (f.sort){
+      case 'deadline_asc':
+        out.sort((a,b)=>(parseDate(a.bid_deadline_at)?.getTime()??Infinity)-(parseDate(b.bid_deadline_at)?.getTime()??Infinity));break;
+      case 'deadline_desc':
+        out.sort((a,b)=>(parseDate(b.bid_deadline_at)?.getTime()??-Infinity)-(parseDate(a.bid_deadline_at)?.getTime()??-Infinity));break;
+      case 'budget_desc': out.sort((a,b)=>(b.budget_amount||0)-(a.budget_amount||0));break;
+      case 'budget_asc': out.sort((a,b)=>(a.budget_amount||0)-(b.budget_amount||0));break;
+      default: // published_desc
+        out.sort((a,b)=>(parseDate(b.published_at)?.getTime()??-Infinity)-(parseDate(a.published_at)?.getTime()??-Infinity));
+    }
+
+    state.view = out;
+    render();
+  }
+
+  // --- render cards ---
+  function render(){
+    const items = state.view;
+    counter.textContent = `Найдено: ${items.length}`;
+
+    grid.innerHTML = '';
+    if (!items.length){ empty.style.display='block'; return; }
+    empty.style.display='none';
+
+    for (const l of items){
+      const card = document.createElement('div');
+      card.className='card';
+
+      const title = document.createElement('div');
+      title.style.fontWeight='700';
+      title.textContent = l.title || '—';
+      card.appendChild(title);
+
+      const row1 = document.createElement('div');
+      row1.className='row';
+      row1.innerHTML = `
+        <span class="badge">${(l.source||'').toUpperCase()}</span>
+        <span class="badge">${l.buyer||'—'}</span>
+        <span class="badge">${l.region||'—'}</span>
+        <span class="badge">${l.category||'—'}</span>
+      `;
+      card.appendChild(row1);
+
+      const desc = document.createElement('div');
+      desc.className='muted';
+      desc.style.fontSize='14px';
+      desc.textContent = l.description || '';
+      card.appendChild(desc);
+
+      const row2 = document.createElement('div');
+      row2.className='row';
+      const st = (l.status||'');
+      row2.innerHTML = `
+        <span class="price">${currency(l.budget_amount||0, l.currency||'UZS')}</span>
+        <span class="badge" style="border-color:${st==='open'?'#1b4d33':'#4d1b1b'};background:${st==='open'?'#0b1b16':'#1b0b0b'}">${st==='open'?'Открыт':st||'unknown'}</span>
+      `;
+      card.appendChild(row2);
+
+      const row3 = document.createElement('div');
+      row3.className='row';
+      row3.innerHTML = `
+        <span class="muted">Опубликовано: ${labelDate(l.published_at)}</span>
+        <span class="muted">Дедлайн: ${labelDate(l.bid_deadline_at)}</span>
+      `;
+      card.appendChild(row3);
+
+      const link = document.createElement('a');
+      link.className='link'; link.href=l.url||'#'; link.target='_blank'; link.rel='noopener';
+      link.textContent='Открыть источник';
+      card.appendChild(link);
+
+      grid.appendChild(card);
+    }
+  }
+
+  // --- events ---
+  function wire(){
+    // поиск по Enter
+    els.q.addEventListener('keydown', e => { if(e.key==='Enter') { state.filters.q = els.q.value.trim(); applyFilters(); } });
+    // кнопка Найти (делает запрос на сервер с q, остальное фильтруем клиентом)
+    els.find.addEventListener('click', async () => {
+      state.filters.q = els.q.value.trim();
+      await reload(true);
+    });
+
+    // выпадающие фильтры / инпуты
+    els.src.addEventListener('change', ()=>{ state.filters.src = els.src.value; applyFilters(); });
+    els.region.addEventListener('change', ()=>{ state.filters.region = els.region.value; applyFilters(); });
+    els.category.addEventListener('change', ()=>{ state.filters.category = els.category.value; applyFilters(); });
+    els.minBudget.addEventListener('input', ()=>{ state.filters.minBudget = els.minBudget.value; applyFilters(); });
+    els.onlyOpen.addEventListener('change', ()=>{ state.filters.onlyOpen = els.onlyOpen.checked; applyFilters(); });
+    els.sort.addEventListener('change', ()=>{ state.filters.sort = els.sort.value; applyFilters(); });
+
+    // обновление данных с сервера (с текущим q)
+    els.refresh.addEventListener('click', ()=> reload(true));
+
+    // сброс фильтров (кроме q)
+    els.reset.addEventListener('click', ()=>{
+      els.src.value='all'; els.region.value='all'; els.category.value='all';
+      els.minBudget.value=''; els.onlyOpen.checked=true; els.sort.value='published_desc';
+      state.filters = { ...state.filters, src:'all', region:'all', category:'all', minBudget:'', onlyOpen:true, sort:'published_desc' };
+      applyFilters();
+    });
+
+    // экспорт
+    els.export.addEventListener('click', ()=>{
+      const blob = new Blob([JSON.stringify(state.view, null, 2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href=url; a.download=`lots_${Date.now()}.json`; a.click();
+      URL.revokeObjectURL(url);
+    });
+  }
+
+  // --- reload: при необходимости запрашиваем с сервера; потом строим селекты и фильтруем ---
+  async function reload(fetchServer=false){
+    try{
+      counter.textContent='Загрузка…';
+      if(fetchServer){
+        const items = await loadFromApi(state.filters.q);
+        state.raw = items;
+      }
+      // уникальные значения для селектов
+      const regs = new Set(), cats = new Set();
+      for(const l of state.raw){ if(l?.region) regs.add(l.region); if(l?.category) cats.add(l.category); }
+      fillSelect(els.region, regs); fillSelect(els.category, cats);
+
+      applyFilters();
+    }catch(e){
+      grid.innerHTML=''; empty.style.display='block'; empty.textContent='Ошибка загрузки данных';
+      counter.textContent='Ошибка';
+      console.error(e);
+    }
+  }
+
+  // --- bootstrap ---
+  wire();
+  // если в URL есть ?q= — используем
+  const urlQ = new URLSearchParams(location.search).get('q') || '';
+  if(urlQ){ els.q.value=urlQ; state.filters.q=urlQ; }
+  // первая загрузка: сходить на сервер
+  reload(true);
+</script>
+</body>
 </html>
