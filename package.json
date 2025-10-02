@@ -1,22 +1,22 @@
 {
   "name": "tenderhub-clean",
   "version": "1.0.0",
-  "description": "Проект парсера etender.uzex.uz",
-  "main": "index.js",
+  "private": true,
   "scripts": {
-    "start": "node index.js",
     "dev": "next dev",
     "build": "next build",
-    "start:prod": "next start"
+    "start": "next start"
   },
   "dependencies": {
-    "axios": "^1.7.0",
-    "cheerio": "^1.0.0-rc.12",
+    "@upstash/redis": "1.31.0",
     "next": "13.5.4",
     "react": "18.2.0",
     "react-dom": "18.2.0"
   },
   "devDependencies": {
-    "typescript": "^5.3.0"
+    "typescript": "5.4.5",
+    "@types/node": "20.11.30",
+    "@types/react": "18.2.58",
+    "@types/react-dom": "18.2.19"
   }
 }
